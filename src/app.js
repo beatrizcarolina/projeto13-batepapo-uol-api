@@ -12,8 +12,8 @@ const mongoClient = new MongoClient(process.env.DATABASE_URL);
 try {
     await mongoClient.connect();
     console.log("MongoDB Connected!");
-} catch (err) {
-    console.log(err.message);
+} catch (error) {
+    console.log(error.message);
 }
 const db = mongoClient.db();
 
@@ -52,21 +52,52 @@ app.post('/participants', async (req,res) => {
             return res.status(409).send({message: "Esse nome de usuário já existe!"});
         }
     } catch (error) {
-        return res.status(500).send({ message: err.message });
+        return res.status(500).send({ message: error.message });
     };
 
     try {
         await db.collection("participants").insertOne(participant);
         await db.collection("messages").insertOne(message);
         return res.sendStatus(201);
-    } catch (err) {
-        return res.status(500).send({ message: err.message });
+    } catch (error) {
+        return res.status(500).send({ message: error.message });
     };
 });
 
 app.get('/participants', async (req,res) => {
     const users = await db.collection("participants").find().toArray();
     res.send(users);
+});
+
+const messageSchema = joi.object({
+    to: joi.string().required(),
+    text: joi.string().required(),
+    type: joi.string().valid("message", "private_message").required(),
+    from: joi.string().required(),
+});
+
+app.post('/messages', async (req,res) => {
+    const message = req.body;
+    message.from = req.headers.user;
+
+    if (messageSchema.validate(message, { abortEarly: false }).error) {
+        const errors = validation.error.details.map((detail) => detail.message);
+        return res.status(422).send(errors);
+    };
+
+    try {
+        const invalidUser = await db.collection("participants").findOne({ name: message.from});
+        if(!invalidUser) {
+            console.log("Participante não existe");
+            console.log(invalidUser);
+            return res.status(422).send({message: "Esse usuário não existe!"});
+        }
+        message.time = dayjs().format("HH:mm:ss");
+        await db.collection("messages").insertOne(message);
+        return res.sendStatus(201);
+    } catch (error) {
+        return res.status(500).send({ message: error.message });
+    }
 });
 
 app.listen(PORT,  () => console.log(`Running server on port ${PORT}`));

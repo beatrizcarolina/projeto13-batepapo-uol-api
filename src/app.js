@@ -75,17 +75,20 @@ app.get('/participants', async (req,res) => {
 });
 
 app.post('/messages', async (req,res) => {
-    const message = req.body;
+    let message = req.body;
     message.from = req.headers.user;
+    console.log(message);
+    console.log(req.headers.user);
 
-    if (messageSchema.validate(message, { abortEarly: false }).error) {
-        const errors = validation.error.details.map((detail) => detail.message);
-        return res.status(422).send(errors);
+    if (messageSchema.validate(message).error) {
+        console.log("Mensagem inválida!")
+        return res.sendStatus(422);
     };
 
     try {
-        const invalidUser = await db.collection("participants").findOne({ name: message.from});
-        if(!invalidUser) {
+        const invalidUser = await db.collection("participants").findOne({ name: message.from });
+        console.log(invalidUser);
+        if(invalidUser === null) {
             console.log("Participante não existe");
             console.log(invalidUser);
             return res.status(422).send({message: "Esse usuário não existe!"});
@@ -100,11 +103,10 @@ app.post('/messages', async (req,res) => {
 
 app.get('/messages', async (req,res) => {
     let limit = parseInt(req.query.limit);
-    if (limit) {
-        if (!(limit > 0)) {
-            return res.status(422).send("Limite de mensagens inválido!");
-        }
-    };
+
+    if (!(limit > 0)) {
+        return res.status(422).send("Limite de mensagens inválido!");
+    }
 
     const user = req.headers.user;
     if (!user || typeof user !== "string") {
@@ -145,5 +147,38 @@ app.post('/status', async (req,res) => {
         return res.status(500).send(error.message);
     }
 });
+
+async function deleteUser(user) {
+    try {
+        const message = {
+            from: user.name,
+            to: "Todos",
+            text: "sai da sala...",
+            type: "status",
+            time: dayjs().format("HH:mm:ss")
+        };
+        await db.collection("messages").insertOne(message);
+        await db.collection("participants").deleteOne({name: user.name});
+        
+    } catch (error) {
+        return res.status(500).send(error.message);
+    }
+}
+
+const maxTime = 10000;
+const timeToCheck = 15000;
+
+async function checkUsers() {
+    try {
+        const offlineUsers = await db.collection("participants").find({lastStatus:{$lte: Date.now() - maxTime}}).toArray();
+        offlineUsers.forEach(async (user) => {
+            await deleteUser(user);
+        });
+    } catch (error) {
+        return res.status(500).send(error.message);
+    }
+}
+
+setInterval(checkUsers, timeToCheck);
 
 app.listen(PORT,  () => console.log(`Running server on port ${PORT}`));

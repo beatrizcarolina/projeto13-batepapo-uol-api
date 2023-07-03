@@ -25,7 +25,12 @@ const PORT = 5000;
 const nameSchema = joi.object({
     name: joi.string().required(),
 });
-
+const messageSchema = joi.object({
+    to: joi.string().required(),
+    text: joi.string().required(),
+    type: joi.string().valid("message", "private_message").required(),
+    from: joi.string().required(),
+});
 
 app.post('/participants', async (req,res) => {
     const participant = req.body;
@@ -69,13 +74,6 @@ app.get('/participants', async (req,res) => {
     res.send(users);
 });
 
-const messageSchema = joi.object({
-    to: joi.string().required(),
-    text: joi.string().required(),
-    type: joi.string().valid("message", "private_message").required(),
-    from: joi.string().required(),
-});
-
 app.post('/messages', async (req,res) => {
     const message = req.body;
     message.from = req.headers.user;
@@ -95,6 +93,35 @@ app.post('/messages', async (req,res) => {
         message.time = dayjs().format("HH:mm:ss");
         await db.collection("messages").insertOne(message);
         return res.sendStatus(201);
+    } catch (error) {
+        return res.status(500).send({ message: error.message });
+    }
+});
+
+app.get('/messages', async (req,res) => {
+    let limit = parseInt(req.query.limit);
+    if (limit) {
+        if (!(limit > 0)) {
+            return res.status(422).send("Limite de mensagens inválido!");
+        }
+    };
+
+    const user = req.headers.user;
+    if (!user || typeof user !== "string") {
+        res.status(400).send("User not sent.");
+        return;
+    };
+
+    try {
+        const messages = await db
+            .collection("messages")
+            .find({$or: [{ type: "message" }, { to: "Todos" }, { to: user }, { from: user }]})
+            .toArray();
+
+        if (limit === 0) {
+            return res.send(messages);
+        }
+        return res.send(messages.slice(-limit));
     } catch (error) {
         return res.status(500).send({ message: error.message });
     }
